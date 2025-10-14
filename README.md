@@ -7,21 +7,23 @@ A simple web server written in C for a note-taking application.
 - A C compiler (e.g., gcc)
 - Make
 - MySQL server
-- `libmysqlclient-dev` (or equivalent for your distribution)
+- `libmysqlclient-dev`
 
 **Ubuntu/Debian:**
+
 ```bash
 sudo apt-get install libmysqlclient-dev
 ```
 
 **Fedora/CentOS/RHEL:**
+
 ```bash
 sudo dnf install mysql-devel
 ```
 
 ## Setup
 
-1.  Create a `.env` file in the root of the project with the following content:
+1. Create a `.env` file in the root of the project with the following content:
 
     ```
     # mysql database
@@ -32,33 +34,33 @@ sudo dnf install mysql-devel
     DATABASE=note_app_on_c
     ```
 
-2.  Create the database `note_app_on_c` in your MySQL server.
+2. Create the database `note_app_on_c` in your MySQL server.
 
 ## Build and Run
 
--   **Build the server:**
+- **Build the server:**
 
-    ```bash
-    make build
-    ```
+  ```bash
+  make build
+  ```
 
--   **Run database migrations:**
+- **Run database migrations:**
 
-    ```bash
-    make migrate
-    ```
+  ```bash
+  make migrate
+  ```
 
--   **Start the server:**
+- **Start the server:**
 
-    ```bash
-    make start
-    ```
+  ```bash
+  make start
+  ```
 
--   **Clean up build artifacts:**
+- **Clean up build artifacts:**
 
-    ```bash
-    make clean
-    ```
+  ```bash
+  make clean
+  ```
 
 The server will start on `http://localhost:8000`.
 
@@ -66,58 +68,64 @@ The server will start on `http://localhost:8000`.
 
 ### Health Check
 
--   **GET /api/health**
+- **GET /api/health**
 
-    Returns the status of the server.
+  Returns the status of the server.
 
-    **Curl:**
-    ```bash
-    curl http://localhost:8000/api/health
-    ```
+  **Curl:**
+
+  ```bash
+  curl http://localhost:8000/api/health
+  ```
 
 ### Notes
 
--   **GET /api/notes**
+- **GET /api/notes**
 
-    Returns a list of all notes.
+  Returns a list of all notes.
 
-    **Curl:**
-    ```bash
-    curl http://localhost:8000/api/notes
-    ```
+  **Curl:**
 
--   **GET /api/notes/:id**
+  ```bash
+  curl http://localhost:8000/api/notes
+  ```
 
-    Returns a single note by its ID.
+- **GET /api/notes/:id**
 
-    **Curl:**
-    ```bash
-    curl http://localhost:8000/api/notes/1
-    ```
+  Returns a single note by its ID.
 
--   **POST /api/notes**
+  **Curl:**
 
-    Creates a new note.
+  ```bash
+  curl http://localhost:8000/api/notes/1
+  ```
 
-    **Curl:**
-    ```bash
-    curl -X POST -H "Content-Type: application/json" -d '{"title":"My Note", "content":"This is my note."}' http://localhost:8000/api/notes
-    ```
+- **POST /api/notes**
 
--   **PUT /api/notes/:id**
+  Creates a new note.
 
-    Updates a note by its ID.
+  **Curl:**
 
-    **Curl:**
-    ```bash
-    curl -X PUT -H "Content-Type: application/json" -d '{"title":"Updated Note", "content":"This is my updated note."}' http://localhost:8000/api/notes/1
-    ```
+  ```bash
+  curl -X POST -H "Content-Type: application/json" -d '{"title":"My Note", "content":"This is my note."}' http://localhost:8000/api/notes
+  ```
 
--   **DELETE /api/notes/:id**
+- **PUT /api/notes/:id**
 
-    Deletes a note by its ID.
+  Updates a note by its ID.
 
-    **Curl:**
-    ```bash
-    curl -X DELETE http://localhost:8000/api/notes/1
-    ```
+  **Curl:**
+
+  ```bash
+  curl -X PUT -H "Content-Type: application/json" -d '{"title":"Updated Note", "content":"This is my updated note."}' http://localhost:8000/api/notes/1
+  ```
+
+- **DELETE /api/notes/:id**
+
+  Deletes a note by its ID.
+
+  **Curl:**
+
+  ```bash
+  curl -X DELETE http://localhost:8000/api/notes/1
+  ```
