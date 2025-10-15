@@ -7,43 +7,144 @@
 #define BUFFER_SIZE 4096
 
 char* repository_create_note(MYSQL *conn, char *title, char *content) {
-    char query[512];
-    sprintf(query, "INSERT INTO notes (title, content) VALUES ('%s', '%s')", title, content);
+    MYSQL_STMT *stmt;
+    MYSQL_BIND bind[2];
 
-    if (mysql_query(conn, query)) {
-        fprintf(stderr, "INSERT failed: %s\n", mysql_error(conn));
+    const char *query = "INSERT INTO notes (title, content) VALUES (?, ?)";
+
+    stmt = mysql_stmt_init(conn);
+    if (!stmt) {
+        fprintf(stderr, "mysql_stmt_init() failed\n");
         return NULL;
     }
 
+    if (mysql_stmt_prepare(stmt, query, strlen(query))) {
+        fprintf(stderr, "mysql_stmt_prepare() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    memset(bind, 0, sizeof(bind));
+
+    unsigned long title_length = strlen(title);
+    unsigned long content_length = strlen(content);
+
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    bind[0].buffer = (char *)title;
+    bind[0].buffer_length = title_length;
+    bind[0].length = &title_length;
+
+    bind[1].buffer_type = MYSQL_TYPE_STRING;
+    bind[1].buffer = (char *)content;
+    bind[1].buffer_length = content_length;
+    bind[1].length = &content_length;
+
+    if (mysql_stmt_bind_param(stmt, bind)) {
+        fprintf(stderr, "mysql_stmt_bind_param() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    if (mysql_stmt_execute(stmt)) {
+        fprintf(stderr, "mysql_stmt_execute() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    mysql_stmt_close(stmt);
     return "{\"message\": \"Note created successfully\"}";
 }
 
 Note* repository_get_note_by_id(MYSQL *conn, int id) {
-    char query[512];
-    sprintf(query, "SELECT id, title, content, created_at FROM notes WHERE id = %d", id);
+    MYSQL_STMT *stmt;
+    MYSQL_BIND bind[1];
+    MYSQL_BIND result_bind[4];
 
-    if (mysql_query(conn, query)) {
-        fprintf(stderr, "SELECT failed: %s\n", mysql_error(conn));
+    const char *query = "SELECT id, title, content, created_at FROM notes WHERE id = ?";
+
+    stmt = mysql_stmt_init(conn);
+    if (!stmt) {
+        fprintf(stderr, "mysql_stmt_init() failed\n");
         return NULL;
     }
 
-    MYSQL_RES *result = mysql_store_result(conn);
-    if (result == NULL) {
-        fprintf(stderr, "mysql_store_result failed: %s\n", mysql_error(conn));
+    if (mysql_stmt_prepare(stmt, query, strlen(query))) {
+        fprintf(stderr, "mysql_stmt_prepare() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
         return NULL;
     }
 
-    MYSQL_ROW row;
+    memset(bind, 0, sizeof(bind));
+    bind[0].buffer_type = MYSQL_TYPE_LONG;
+    bind[0].buffer = (char *)&id;
+    bind[0].is_null = 0;
+    bind[0].length = 0;
+
+    if (mysql_stmt_bind_param(stmt, bind)) {
+        fprintf(stderr, "mysql_stmt_bind_param() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    if (mysql_stmt_execute(stmt)) {
+        fprintf(stderr, "mysql_stmt_execute() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    int result_id;
+    char title_buffer[256];
+    char content_buffer[1024];
+    char created_at_buffer[64];
+    unsigned long title_length, content_length, created_at_length;
+    my_bool title_is_null, content_is_null, created_at_is_null;
+
+    memset(result_bind, 0, sizeof(result_bind));
+
+    result_bind[0].buffer_type = MYSQL_TYPE_LONG;
+    result_bind[0].buffer = (char *)&result_id;
+
+    result_bind[1].buffer_type = MYSQL_TYPE_STRING;
+    result_bind[1].buffer = title_buffer;
+    result_bind[1].buffer_length = sizeof(title_buffer);
+    result_bind[1].length = &title_length;
+    result_bind[1].is_null = &title_is_null;
+
+    result_bind[2].buffer_type = MYSQL_TYPE_STRING;
+    result_bind[2].buffer = content_buffer;
+    result_bind[2].buffer_length = sizeof(content_buffer);
+    result_bind[2].length = &content_length;
+    result_bind[2].is_null = &content_is_null;
+
+    result_bind[3].buffer_type = MYSQL_TYPE_STRING;
+    result_bind[3].buffer = created_at_buffer;
+    result_bind[3].buffer_length = sizeof(created_at_buffer);
+    result_bind[3].length = &created_at_length;
+    result_bind[3].is_null = &created_at_is_null;
+
+    if (mysql_stmt_bind_result(stmt, result_bind)) {
+        fprintf(stderr, "mysql_stmt_bind_result() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
     Note *note = NULL;
-    if ((row = mysql_fetch_row(result))) {
+    if (mysql_stmt_fetch(stmt) == 0) {
         note = malloc(sizeof(Note));
-        note->id = atoi(row[0]);
-        note->title = strdup(row[1]);
-        note->content = strdup(row[2]);
-        note->created_at = strdup(row[3]);
+        if (note) {
+            note->id = result_id;
+            note->title = strndup(title_buffer, title_length);
+            note->content = strndup(content_buffer, content_length);
+            note->created_at = strndup(created_at_buffer, created_at_length);
+
+            if (!note->title || !note->content || !note->created_at) {
+                free_note(note);
+                note = NULL;
+            }
+        }
     }
 
-    mysql_free_result(result);
+    mysql_stmt_close(stmt);
     return note;
 }
 
@@ -87,26 +188,96 @@ char* repository_get_all_notes(MYSQL *conn) {
 }
 
 char* repository_update_note_by_id(MYSQL *conn, int id, char *title, char *content) {
-    char query[512];
-    sprintf(query, "UPDATE notes SET title = '%s', content = '%s' WHERE id = %d", title, content, id);
+    MYSQL_STMT *stmt;
+    MYSQL_BIND bind[3];
 
-    if (mysql_query(conn, query)) {
-        fprintf(stderr, "UPDATE failed: %s\n", mysql_error(conn));
+    const char *query = "UPDATE notes SET title = ?, content = ? WHERE id = ?";
+
+    stmt = mysql_stmt_init(conn);
+    if (!stmt) {
+        fprintf(stderr, "mysql_stmt_init() failed\n");
         return NULL;
     }
 
+    if (mysql_stmt_prepare(stmt, query, strlen(query))) {
+        fprintf(stderr, "mysql_stmt_prepare() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    memset(bind, 0, sizeof(bind));
+
+    unsigned long title_length = strlen(title);
+    unsigned long content_length = strlen(content);
+
+    bind[0].buffer_type = MYSQL_TYPE_STRING;
+    bind[0].buffer = (char *)title;
+    bind[0].buffer_length = title_length;
+    bind[0].length = &title_length;
+
+    bind[1].buffer_type = MYSQL_TYPE_STRING;
+    bind[1].buffer = (char *)content;
+    bind[1].buffer_length = content_length;
+    bind[1].length = &content_length;
+
+    bind[2].buffer_type = MYSQL_TYPE_LONG;
+    bind[2].buffer = (char *)&id;
+    bind[2].is_null = 0;
+    bind[2].length = 0;
+
+    if (mysql_stmt_bind_param(stmt, bind)) {
+        fprintf(stderr, "mysql_stmt_bind_param() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    if (mysql_stmt_execute(stmt)) {
+        fprintf(stderr, "mysql_stmt_execute() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    mysql_stmt_close(stmt);
     return "{\"message\": \"Note updated successfully\"}";
 }
 
 char* repository_delete_note_by_id(MYSQL *conn, int id) {
-    char query[512];
-    sprintf(query, "DELETE FROM notes WHERE id = %d", id);
+    MYSQL_STMT *stmt;
+    MYSQL_BIND bind[1];
 
-    if (mysql_query(conn, query)) {
-        fprintf(stderr, "DELETE failed: %s\n", mysql_error(conn));
+    const char *query = "DELETE FROM notes WHERE id = ?";
+
+    stmt = mysql_stmt_init(conn);
+    if (!stmt) {
+        fprintf(stderr, "mysql_stmt_init() failed\n");
         return NULL;
     }
 
+    if (mysql_stmt_prepare(stmt, query, strlen(query))) {
+        fprintf(stderr, "mysql_stmt_prepare() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    memset(bind, 0, sizeof(bind));
+    bind[0].buffer_type = MYSQL_TYPE_LONG;
+    bind[0].buffer = (char *)&id;
+    bind[0].is_null = 0;
+    bind[0].length = 0;
+
+    if (mysql_stmt_bind_param(stmt, bind)) {
+        fprintf(stderr, "mysql_stmt_bind_param() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    if (mysql_stmt_execute(stmt)) {
+        fprintf(stderr, "mysql_stmt_execute() failed: %s\n", mysql_stmt_error(stmt));
+        mysql_stmt_close(stmt);
+        return NULL;
+    }
+
+    mysql_stmt_close(stmt);
     return "{\"message\": \"Note deleted successfully\"}";
 }
 

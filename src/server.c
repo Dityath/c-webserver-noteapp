@@ -4,6 +4,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include <signal.h>
+#include <errno.h>
 
 #define PORT 8000
 #define BUFFER_SIZE 1024
@@ -13,11 +15,22 @@
 
 #include <time.h>
 
+static volatile sig_atomic_t keep_running = 1;
+
+static void handle_signal(int sig) {
+    (void)sig; // Unused parameter
+    keep_running = 0;
+}
+
 void run_server() {
     MYSQL *conn = db_connect();
     if (conn == NULL) {
         exit(EXIT_FAILURE);
     }
+
+    // Set up signal handlers for graceful shutdown
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
 
     int server_fd, new_socket;
     struct sockaddr_in address;
@@ -27,6 +40,7 @@ void run_server() {
     // Creating socket file descriptor
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
         perror("socket failed");
+        db_disconnect(conn);
         exit(EXIT_FAILURE);
     }
 
@@ -34,6 +48,8 @@ void run_server() {
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR,
                                                   &opt, sizeof(opt))) {
         perror("setsockopt");
+        close(server_fd);
+        db_disconnect(conn);
         exit(EXIT_FAILURE);
     }
     address.sin_family = AF_INET;
@@ -41,32 +57,48 @@ void run_server() {
     address.sin_port = htons( PORT );
 
     // Forcefully attaching socket to the port 8000
-    if (bind(server_fd, (struct sockaddr *)&address, 
+    if (bind(server_fd, (struct sockaddr *)&address,
                                  sizeof(address))<0) {
         perror("bind failed");
+        close(server_fd);
+        db_disconnect(conn);
         exit(EXIT_FAILURE);
     }
     if (listen(server_fd, 3) < 0) {
         perror("listen");
+        close(server_fd);
+        db_disconnect(conn);
         exit(EXIT_FAILURE);
     }
-    
-    while(1) {
+
+    printf("Server listening on port %d\n", PORT);
+
+    while(keep_running) {
         if ((new_socket = accept(server_fd, (struct sockaddr *)&address,
                            (socklen_t*)&addrlen))<0) {
+            if (errno == EINTR) {
+                // Interrupted by signal, check if we should continue
+                continue;
+            }
             perror("accept");
-            exit(EXIT_FAILURE);
+            continue; // Continue accepting other connections instead of exiting
         }
 
         int buffer_size = BUFFER_SIZE;
         char *buffer = malloc(buffer_size);
+        if (!buffer) {
+            perror("malloc");
+            close(new_socket);
+            continue;
+        }
         int bytes_read = 0;
 
         // Read the request into a dynamic buffer
         while (1) {
-            int result = read(new_socket, buffer + bytes_read, buffer_size - bytes_read);
+            int result = read(new_socket, buffer + bytes_read, buffer_size - bytes_read - 1);
             if (result < 0) {
                 perror("read");
+                free(buffer);
                 close(new_socket);
                 break;
             }
@@ -74,9 +106,18 @@ void run_server() {
                 break;
             }
             bytes_read += result;
-            if (bytes_read == buffer_size) {
+            buffer[bytes_read] = '\0'; // Ensure null termination
+
+            if (bytes_read >= buffer_size - 1) {
                 buffer_size *= 2;
-                buffer = realloc(buffer, buffer_size);
+                char *new_buffer = realloc(buffer, buffer_size);
+                if (!new_buffer) {
+                    perror("realloc");
+                    free(buffer);
+                    close(new_socket);
+                    break;
+                }
+                buffer = new_buffer;
             }
             // Check if we have received the end of the headers
             if (strstr(buffer, "\r\n\r\n")) {
@@ -97,25 +138,44 @@ void run_server() {
             }
         }
 
+        if (bytes_read < 0) {
+            continue; // Skip to next iteration if read failed
+        }
+
         if (bytes_read > 0) {
             time_t now = time(NULL);
             char *time_str = ctime(&now);
-            time_str[strlen(time_str) - 1] = '\0';
+            if (time_str) {
+                time_str[strlen(time_str) - 1] = '\0';
+            }
+
+            // Create a copy for parsing without modifying the original buffer
             char *buffer_copy = malloc(bytes_read + 1);
-            strcpy(buffer_copy, buffer);
-            char *method = strtok(buffer_copy, " ");
-            char *uri = strtok(NULL, " ");
-            printf("[%s] %s %s\n", time_str, method, uri);
-            route(new_socket, conn, buffer);
-            free(buffer_copy);
+            if (buffer_copy) {
+                memcpy(buffer_copy, buffer, bytes_read);
+                buffer_copy[bytes_read] = '\0';
+
+                char *method = strtok(buffer_copy, " ");
+                char *uri = strtok(NULL, " ");
+
+                if (method && uri && time_str) {
+                    printf("[%s] %s %s\n", time_str, method, uri);
+                }
+
+                route(new_socket, conn, buffer);
+                free(buffer_copy);
+            } else {
+                route(new_socket, conn, buffer);
+            }
         } else if (bytes_read == 0) {
             printf("Client disconnected.\n");
-        } else {
-            perror("read");
         }
         free(buffer);
         close(new_socket);
     }
 
+    printf("\nShutting down server gracefully...\n");
+    close(server_fd);
     db_disconnect(conn);
+    printf("Server shutdown complete.\n");
 }
