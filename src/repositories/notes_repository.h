@@ -1,5 +1,5 @@
-#ifndef REPOSITORIES_H
-#define REPOSITORIES_H
+#ifndef NOTES_REPOSITORY_H
+#define NOTES_REPOSITORY_H
 
 #include <mysql/mysql.h>
 

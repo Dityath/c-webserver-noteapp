@@ -1,6 +1,5 @@
-#include "handlers.h"
-#include "services.h"
-#include <ctype.h>
+#include "notes_handler.h"
+#include "../services/notes_service.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -73,33 +72,12 @@ static int validate_note_input(const char *title, const char *content) {
   size_t title_len = strlen(title);
   size_t content_len = strlen(content);
 
-  // Check length limits
   if (title_len == 0 || title_len > MAX_TITLE_LEN)
     return 0;
   if (content_len == 0 || content_len > MAX_CONTENT_LEN)
     return 0;
 
   return 1;
-}
-
-void handle_api_health(int client_socket) {
-  char *body = "{\"status\": \"ok\"}";
-  char response[BUFFER_SIZE];
-  snprintf(response, sizeof(response),
-           "HTTP/1.1 200 OK\r\nContent-Type: "
-           "application/json\r\nContent-Length: %ld\r\n\r\n%s",
-           strlen(body), body);
-  write(client_socket, response, strlen(response));
-}
-
-void handle_api_hello(int client_socket) {
-  char *body = "{\"message\": \"Hello, World!\"}";
-  char response[BUFFER_SIZE];
-  snprintf(response, sizeof(response),
-           "HTTP/1.1 200 OK\r\nContent-Type: "
-           "application/json\r\nContent-Length: %ld\r\n\r\n%s",
-           strlen(body), body);
-  write(client_socket, response, strlen(response));
 }
 
 void handle_not_found(int client_socket) {
@@ -126,7 +104,6 @@ void handle_create_note(int client_socket, MYSQL *conn, char *buffer) {
   char title[MAX_TITLE_LEN + 1] = {0};
   char content[MAX_CONTENT_LEN + 1] = {0};
 
-  // Extract JSON fields safely
   if (!extract_json_string(body, "title", title, sizeof(title)) ||
       !extract_json_string(body, "content", content, sizeof(content))) {
     char *response =
@@ -135,7 +112,6 @@ void handle_create_note(int client_socket, MYSQL *conn, char *buffer) {
     return;
   }
 
-  // Validate input
   if (!validate_note_input(title, content)) {
     char *response = "HTTP/1.1 400 Bad Request\r\n\r\n{\"error\": \"Invalid "
                      "title or content\"}";
@@ -221,12 +197,11 @@ void handle_update_note(int client_socket, MYSQL *conn, int id, char *buffer) {
     return;
   }
 
-  body += 4; // Skip \r\n\r\n
+  body += 4;
 
   char title[MAX_TITLE_LEN + 1] = {0};
   char content[MAX_CONTENT_LEN + 1] = {0};
 
-  // Extract JSON fields safely
   if (!extract_json_string(body, "title", title, sizeof(title)) ||
       !extract_json_string(body, "content", content, sizeof(content))) {
     char *response =
@@ -235,7 +210,6 @@ void handle_update_note(int client_socket, MYSQL *conn, int id, char *buffer) {
     return;
   }
 
-  // Validate input
   if (!validate_note_input(title, content)) {
     char *response = "HTTP/1.1 400 Bad Request\r\n\r\n{\"error\": \"Invalid "
                      "title or content\"}";

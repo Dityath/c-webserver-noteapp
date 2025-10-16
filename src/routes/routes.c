@@ -1,8 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "routes.h"
-#include "handlers.h"
+#include "../handlers/notes_handler.h"
+#include "health_routes.h"
+#include "notes_routes.h"
 #include <ctype.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -54,64 +55,27 @@ static int match_route(const char *pattern, const char *uri, int *params,
   return (*p == '\0' && *u == '\0');
 }
 
-static void route_api_health(int client_socket, MYSQL *conn, char *request,
-                             int *params) {
-  (void)conn;
-  (void)request;
-  (void)params;
-  handle_api_health(client_socket);
-}
+static Route routes[50];
+static int routes_initialized = 0;
 
-static void route_api_hello(int client_socket, MYSQL *conn, char *request,
-                            int *params) {
-  (void)conn;
-  (void)request;
-  (void)params;
-  handle_api_hello(client_socket);
-}
+static void initialize_routes() {
+  if (routes_initialized)
+    return;
 
-static void route_notes_list(int client_socket, MYSQL *conn, char *request,
-                             int *params) {
-  (void)request;
-  (void)params;
-  handle_get_all_notes(client_socket, conn);
-}
+  int index = 0;
 
-static void route_notes_create(int client_socket, MYSQL *conn, char *request,
-                               int *params) {
-  (void)params;
-  handle_create_note(client_socket, conn, request);
-}
+  register_health_routes(routes, &index);
 
-static void route_notes_get(int client_socket, MYSQL *conn, char *request,
-                            int *params) {
-  (void)request;
-  handle_get_note(client_socket, conn, params[0]);
-}
+  register_notes_routes(routes, &index);
 
-static void route_notes_update(int client_socket, MYSQL *conn, char *request,
-                               int *params) {
-  handle_update_note(client_socket, conn, params[0], request);
-}
+  routes[index] = (Route){NULL, METHOD_UNKNOWN, NULL, NULL};
 
-static void route_notes_delete(int client_socket, MYSQL *conn, char *request,
-                               int *params) {
-  (void)request;
-  handle_delete_note(client_socket, conn, params[0]);
+  routes_initialized = 1;
 }
-
-static Route routes[] = {
-    {"GET", METHOD_GET, "/api/health", route_api_health},
-    {"GET", METHOD_GET, "/api", route_api_hello},
-    {"GET", METHOD_GET, "/api/notes", route_notes_list},
-    {"POST", METHOD_POST, "/api/notes", route_notes_create},
-    {"GET", METHOD_GET, "/api/notes/:id", route_notes_get},
-    {"PUT", METHOD_PUT, "/api/notes/:id", route_notes_update},
-    {"DELETE", METHOD_DELETE, "/api/notes/:id", route_notes_delete},
-    {NULL, METHOD_UNKNOWN, NULL, NULL} // Sentinel
-};
 
 void route(int client_socket, MYSQL *conn, char *request) {
+  initialize_routes();
+
   // Parse request to extract method and URI
   char *request_copy = strdup(request);
   if (!request_copy) {

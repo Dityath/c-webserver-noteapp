@@ -1,7 +1,7 @@
-#ifndef SERVICES_H
-#define SERVICES_H
+#ifndef NOTES_SERVICE_H
+#define NOTES_SERVICE_H
 
-#include "repositories.h"
+#include "../repositories/notes_repository.h"
 
 char *service_create_note(MYSQL *, char *, char *);
 Note *service_get_note_by_id(MYSQL *, int);

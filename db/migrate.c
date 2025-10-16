@@ -1,4 +1,4 @@
-#include "../src/config.h"
+#include "../src/core/config.h"
 #include <dirent.h>
 #include <mysql/mysql.h>
 #include <stdio.h>

@@ -9,9 +9,10 @@
 
 #define PORT 8000
 #define BUFFER_SIZE 1024
+#define MAX_CONTENT_LENGTH (10 * 1024 * 1024)
 
+#include "../routes/routes.h"
 #include "database.h"
-#include "routes.h"
 
 #include <time.h>
 
@@ -23,11 +24,6 @@ static void handle_signal(int sig) {
 }
 
 void run_server() {
-  MYSQL *conn = db_connect();
-  if (conn == NULL) {
-    exit(EXIT_FAILURE);
-  }
-
   signal(SIGINT, handle_signal);
   signal(SIGTERM, handle_signal);
 
@@ -38,14 +34,12 @@ void run_server() {
 
   if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
     perror("socket failed");
-    db_disconnect(conn);
     exit(EXIT_FAILURE);
   }
 
   if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
     perror("setsockopt");
     close(server_fd);
-    db_disconnect(conn);
     exit(EXIT_FAILURE);
   }
   address.sin_family = AF_INET;
@@ -55,13 +49,11 @@ void run_server() {
   if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
     perror("bind failed");
     close(server_fd);
-    db_disconnect(conn);
     exit(EXIT_FAILURE);
   }
   if (listen(server_fd, 3) < 0) {
     perror("listen");
     close(server_fd);
-    db_disconnect(conn);
     exit(EXIT_FAILURE);
   }
 
@@ -116,6 +108,13 @@ void run_server() {
         char *content_length_str = strstr(buffer, "Content-Length: ");
         if (content_length_str) {
           int content_length = atoi(content_length_str + 16);
+          // Validate Content-Length to prevent DoS
+          if (content_length < 0 || content_length > MAX_CONTENT_LENGTH) {
+            fprintf(stderr, "Invalid Content-Length: %d\n", content_length);
+            free(buffer);
+            close(new_socket);
+            break;
+          }
           char *body = strstr(buffer, "\r\n\r\n");
           if (body) {
             body += 4;
@@ -135,6 +134,17 @@ void run_server() {
     }
 
     if (bytes_read > 0) {
+      MYSQL *conn = db_connect();
+      if (conn == NULL) {
+        char *response =
+            "HTTP/1.1 500 Internal Server Error\r\n\r\n{\"error\": \"Database "
+            "connection failed\"}";
+        write(new_socket, response, strlen(response));
+        free(buffer);
+        close(new_socket);
+        continue;
+      }
+
       time_t now = time(NULL);
       char *time_str = ctime(&now);
       if (time_str) {
@@ -158,6 +168,8 @@ void run_server() {
       } else {
         route(new_socket, conn, buffer);
       }
+
+      db_disconnect(conn);
     } else if (bytes_read == 0) {
       printf("Client disconnected.\n");
     }
@@ -167,6 +179,5 @@ void run_server() {
 
   printf("\nShutting down server gracefully...\n");
   close(server_fd);
-  db_disconnect(conn);
   printf("Server shutdown complete.\n");
 }

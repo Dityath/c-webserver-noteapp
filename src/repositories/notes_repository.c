@@ -1,5 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
-#include "repositories.h"
+#include "notes_repository.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,8 +100,8 @@ Note *repository_get_note_by_id(MYSQL *conn, int id) {
   }
 
   int result_id;
-  char title_buffer[256];
-  char content_buffer[1024];
+  char title_buffer[512];
+  char content_buffer[8192];
   char created_at_buffer[64];
   unsigned long title_length, content_length, created_at_length;
   my_bool title_is_null, content_is_null, created_at_is_null;
@@ -170,29 +170,40 @@ char *repository_get_all_notes(MYSQL *conn) {
 
   size_t buffer_size = BUFFER_SIZE;
   char *json_result = malloc(buffer_size);
-  strcpy(json_result, "[");
+  if (!json_result) {
+    mysql_free_result(result);
+    return NULL;
+  }
+  strncpy(json_result, "[", buffer_size);
 
   MYSQL_ROW row;
   int first = 1;
   while ((row = mysql_fetch_row(result))) {
     if (!first) {
-      strcat(json_result, ",");
+      strncat(json_result, ",", buffer_size - strlen(json_result) - 1);
     }
-    char note_json[512];
-    sprintf(note_json,
-            "{\"id\":%s, \"title\":\"%s\", \"content\":\"%s\", "
-            "\"created_at\":\"%s\"}",
-            row[0], row[1], row[2], row[3]);
+    char note_json[1024];
+    snprintf(note_json, sizeof(note_json),
+             "{\"id\":%s, \"title\":\"%s\", \"content\":\"%s\", "
+             "\"created_at\":\"%s\"}",
+             row[0], row[1] ? row[1] : "", row[2] ? row[2] : "",
+             row[3] ? row[3] : "");
 
     if (strlen(json_result) + strlen(note_json) + 2 > buffer_size) {
       buffer_size *= 2;
-      json_result = realloc(json_result, buffer_size);
+      char *new_result = realloc(json_result, buffer_size);
+      if (!new_result) {
+        free(json_result);
+        mysql_free_result(result);
+        return NULL;
+      }
+      json_result = new_result;
     }
-    strcat(json_result, note_json);
+    strncat(json_result, note_json, buffer_size - strlen(json_result) - 1);
     first = 0;
   }
 
-  strcat(json_result, "]");
+  strncat(json_result, "]", buffer_size - strlen(json_result) - 1);
   mysql_free_result(result);
   return json_result;
 }
